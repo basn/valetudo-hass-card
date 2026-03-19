@@ -136,6 +136,8 @@ class ValetudoHassCard extends HTMLElement {
 
 customElements.define("valetudo-hass-card", ValetudoHassCard);
 
+console.info("valetudo-hass-card minimal build 2026-03-19");
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "valetudo-hass-card",
