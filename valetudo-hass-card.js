@@ -1,4 +1,8 @@
 class ValetudoHassCard extends HTMLElement {
+  static get VERSION() {
+    return "1756541+debug1";
+  }
+
   static getStubConfig() {
     return {
       type: "custom:valetudo-hass-card",
@@ -415,6 +419,7 @@ class ValetudoHassCard extends HTMLElement {
               <div class="state">${vacuum.state}</div>
             </div>
             <div class="meta">
+              <div>build ${ValetudoHassCard.VERSION}</div>
               <div>${battery ? battery.state + "%" : "-"}</div>
               <div>${dock ? dock.state : "-"}</div>
             </div>
