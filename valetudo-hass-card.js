@@ -79,8 +79,18 @@ class ValetudoHassCard extends HTMLElement {
       return;
     }
 
-    this._mapFetchInFlight = this._hass
-      .fetchWithAuth(nextUrl)
+    const fetchWithAuth =
+      this._hass &&
+      (
+        (typeof this._hass.fetchWithAuth === "function" && this._hass.fetchWithAuth.bind(this._hass)) ||
+        (this._hass.auth && typeof this._hass.auth.fetchWithAuth === "function" && this._hass.auth.fetchWithAuth.bind(this._hass.auth))
+      );
+
+    const request = fetchWithAuth
+      ? fetchWithAuth(nextUrl)
+      : fetch(nextUrl, { credentials: "same-origin" });
+
+    this._mapFetchInFlight = request
       .then((response) => {
         if (!response.ok) {
           throw new Error("Map request failed: " + response.status);
@@ -95,13 +105,33 @@ class ValetudoHassCard extends HTMLElement {
       .catch((err) => {
         console.error("valetudo-hass-card map fetch failed", err);
         this._mapPayload = {
-          error: err && err.message ? err.message : String(err),
+          error: this._formatError(err),
         };
         this._safeRender();
       })
       .finally(() => {
         this._mapFetchInFlight = null;
       });
+  }
+
+  _formatError(err) {
+    if (!err) {
+      return "unknown error";
+    }
+    if (typeof err === "string") {
+      return err;
+    }
+    if (err.message) {
+      return err.message;
+    }
+    if (err.body && typeof err.body === "string") {
+      return err.body;
+    }
+    try {
+      return JSON.stringify(err);
+    } catch (_jsonErr) {
+      return String(err);
+    }
   }
 
   _renderError(err) {
