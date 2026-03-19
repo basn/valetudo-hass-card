@@ -27,6 +27,7 @@ class ValetudoHassCard extends HTMLElement {
       this.attachShadow({ mode: "open" });
     }
 
+    this._syncMapFetch();
     this._safeRender();
   }
 
