@@ -79,7 +79,21 @@ class ValetudoHassCard extends HTMLElement {
       return;
     }
 
-    this._mapFetchInFlight = fetch(nextUrl, { credentials: "same-origin" })
+    const headers = {};
+    const accessToken =
+      this._hass &&
+      this._hass.auth &&
+      this._hass.auth.data &&
+      this._hass.auth.data.accessToken;
+
+    if (accessToken) {
+      headers.Authorization = "Bearer " + accessToken;
+    }
+
+    this._mapFetchInFlight = fetch(nextUrl, {
+      credentials: "same-origin",
+      headers: headers,
+    })
       .then((response) => {
         if (!response.ok) {
           throw new Error("Map request failed: " + response.status);
