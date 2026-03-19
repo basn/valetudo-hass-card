@@ -79,10 +79,14 @@ class ValetudoHassCard extends HTMLElement {
       return;
     }
 
-    const apiPath = nextUrl.indexOf("/api/") === 0 ? nextUrl.substring(5) : nextUrl;
-
     this._mapFetchInFlight = this._hass
-      .callApi("GET", apiPath)
+      .fetchWithAuth(nextUrl)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Map request failed: " + response.status);
+        }
+        return response.json();
+      })
       .then((payload) => {
         this._mapPayload = payload;
         this._mapNonce = nextNonce;
