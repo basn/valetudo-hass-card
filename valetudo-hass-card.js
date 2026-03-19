@@ -187,6 +187,7 @@ class ValetudoHassCard extends HTMLElement {
   }
 
   _boundsForMap(map) {
+    const pixelSize = map.pixelSize || 1;
     let minX = Number.POSITIVE_INFINITY;
     let minY = Number.POSITIVE_INFINITY;
     let maxX = 0;
@@ -218,7 +219,7 @@ class ValetudoHassCard extends HTMLElement {
     for (let i = 0; i < entities.length; i += 1) {
       const points = entities[i].points || [];
       for (let p = 0; p < points.length; p += 2) {
-        includePoint(points[p], points[p + 1]);
+        includePoint(points[p] / pixelSize, points[p + 1] / pixelSize);
       }
     }
 
@@ -256,6 +257,14 @@ class ValetudoHassCard extends HTMLElement {
     ctx.stroke();
   }
 
+  _normalizePoints(points, pixelSize) {
+    const normalized = [];
+    for (let i = 0; i < points.length; i += 2) {
+      normalized.push(points[i] / pixelSize, points[i + 1] / pixelSize);
+    }
+    return normalized;
+  }
+
   _drawPolygon(ctx, points, tx, ty, fillStyle, strokeStyle) {
     if (!points || points.length < 6) {
       return;
@@ -283,6 +292,7 @@ class ValetudoHassCard extends HTMLElement {
     }
 
     const map = payload.map;
+    const pixelSize = map.pixelSize || 1;
     const bounds = this._boundsForMap(map);
     const dpr = window.devicePixelRatio || 1;
     const cssWidth = Math.max(280, canvas.clientWidth || 320);
@@ -331,16 +341,17 @@ class ValetudoHassCard extends HTMLElement {
 
     for (let i = 0; i < entities.length; i += 1) {
       const entity = entities[i];
+      const points = this._normalizePoints(entity.points || [], pixelSize);
       if (entity.type === "carpet") {
-        this._drawPolygon(ctx, entity.points || [], tx, ty, this._withAlpha("#8d6e63", 0.08), this._withAlpha("#8d6e63", 0.45));
+        this._drawPolygon(ctx, points, tx, ty, this._withAlpha("#8d6e63", 0.08), this._withAlpha("#8d6e63", 0.45));
       } else if (entity.type === "path" || entity.type === "predicted_path") {
-        this._drawPolyline(ctx, entity.points || [], tx, ty, entity.type === "path" ? "#1565c0" : "#9e9e9e", entity.type === "path" ? 2 : 1);
+        this._drawPolyline(ctx, points, tx, ty, entity.type === "path" ? "#1565c0" : "#9e9e9e", entity.type === "path" ? 2 : 1);
       } else if (entity.type === "robot_position") {
-        robot = entity;
+        robot = { metaData: entity.metaData || {}, points: points };
       } else if (entity.type === "charger_location") {
-        charger = entity;
+        charger = { metaData: entity.metaData || {}, points: points };
       } else if (entity.__class === "PolygonMapEntity") {
-        this._drawPolygon(ctx, entity.points || [], tx, ty, null, this._withAlpha("#5c6b7a", 0.35));
+        this._drawPolygon(ctx, points, tx, ty, null, this._withAlpha("#5c6b7a", 0.35));
       }
     }
 
