@@ -1,6 +1,6 @@
 class ValetudoHassCard extends HTMLElement {
   static get VERSION() {
-    return "480055c";
+    return "valetudo-match-1";
   }
 
   static getStubConfig() {
@@ -162,32 +162,85 @@ class ValetudoHassCard extends HTMLElement {
     }
   }
 
-  _segmentColor(segmentId, active) {
-    const palette = [
-      "#1d959b",
-      "#76b12f",
-      "#c65c1c",
-      "#2a98a3",
-      "#7eb53a",
-      "#8f6fae",
-      "#32949a",
-      "#cd6321",
-      "#78b039",
-      "#2c959d",
-    ];
-    const index = Math.abs(parseInt(segmentId || "0", 10) || 0) % palette.length;
-    return active ? palette[index] : this._withAlpha(palette[index], 0.98);
+  _hexToRgb(hex) {
+    const safe = hex.replace("#", "");
+    return {
+      r: parseInt(safe.substring(0, 2), 16),
+      g: parseInt(safe.substring(2, 4), 16),
+      b: parseInt(safe.substring(4, 6), 16),
+    };
   }
 
-  _withAlpha(hex, alpha) {
-    const safe = hex.replace("#", "");
-    if (safe.length !== 6) {
-      return hex;
+  _adjustRgb(color, percent) {
+    const multiplier = (100 + percent) / 100;
+    return {
+      r: Math.round(Math.min(255, Math.max(0, color.r * multiplier))),
+      g: Math.round(Math.min(255, Math.max(0, color.g * multiplier))),
+      b: Math.round(Math.min(255, Math.max(0, color.b * multiplier))),
+    };
+  }
+
+  _rgbString(color) {
+    return "rgb(" + color.r + "," + color.g + "," + color.b + ")";
+  }
+
+  _rgbaString(color, alpha) {
+    return "rgba(" + color.r + "," + color.g + "," + color.b + "," + alpha + ")";
+  }
+
+  _valetudoColors() {
+    const wall = this._hexToRgb("#333333");
+    const darkSegments = [
+      this._hexToRgb("#148181"),
+      this._hexToRgb("#629A2C"),
+      this._hexToRgb("#B24513"),
+      this._hexToRgb("#C6A034"),
+      this._hexToRgb("#7A52A3"),
+    ];
+
+    return {
+      wall: wall,
+      floor: this._hexToRgb("#005ECC"),
+      segments: darkSegments,
+      wallAccent: this._adjustRgb(wall, -15),
+      segmentAccent: darkSegments.map((c) => this._adjustRgb(c, -25)),
+    };
+  }
+
+  _segmentIndex(segmentId) {
+    return Math.abs(parseInt(segmentId || "0", 10) || 0) % 5;
+  }
+
+  _materialPattern(material, x, y) {
+    if (material === "tile") {
+      const TILE_SIZE = 6;
+      return x % TILE_SIZE === 0 || y % TILE_SIZE === 0;
     }
-    const r = parseInt(safe.substring(0, 2), 16);
-    const g = parseInt(safe.substring(2, 4), 16);
-    const b = parseInt(safe.substring(4, 6), 16);
-    return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
+
+    if (material === "wood_horizontal" || material === "wood_vertical") {
+      const horizontal = material === "wood_horizontal";
+      const PLANK_WIDTH = 5;
+      const PLANK_LENGTH = 24;
+      const JOINT_OFFSET = PLANK_LENGTH / 2;
+      const mainAxisCoord = horizontal ? y : x;
+      const crossAxisCoord = horizontal ? x : y;
+      if (mainAxisCoord % PLANK_WIDTH === 0) {
+        return true;
+      }
+      const plankStripIndex = Math.floor(mainAxisCoord / PLANK_WIDTH);
+      const currentJointPosition = plankStripIndex % 2 === 0 ? 0 : JOINT_OFFSET;
+      return crossAxisCoord % PLANK_LENGTH === currentJointPosition;
+    }
+
+    if (material === "wood") {
+      const PLANK_WIDTH = 4;
+      const SECTION_WIDTH = 8;
+      const zig = Math.floor(x / SECTION_WIDTH) % 2 === 0;
+      const diagonalValue = zig ? x + y : x - y;
+      return diagonalValue % PLANK_WIDTH === 0;
+    }
+
+    return false;
   }
 
   _boundsForMap(map) {
@@ -335,26 +388,29 @@ class ValetudoHassCard extends HTMLElement {
     for (let i = 0; i < layers.length; i += 1) {
       const layer = layers[i];
       const compressed = layer.compressedPixels || [];
-      let fill = "#4d535a";
-      if (layer.type === "wall") {
-        fill = "#24272c";
-      } else if (layer.type === "segment") {
-        fill = this._segmentColor(layer.metaData && layer.metaData.segmentId, layer.metaData && layer.metaData.active);
-      } else if (layer.type === "floor") {
-        fill = "#8f989f";
-      }
-
-      pixelCtx.fillStyle = fill;
+      const colors = this._valetudoColors();
       for (let c = 0; c < compressed.length; c += 3) {
         const x = compressed[c];
         const y = compressed[c + 1];
         const len = compressed[c + 2];
-        pixelCtx.fillRect(
-          Math.round(x - bounds.minX),
-          Math.round(y - bounds.minY),
-          Math.max(1, len),
-          1
-        );
+        for (let offset = 0; offset < len; offset += 1) {
+          const px = x + offset;
+          let color = colors.floor;
+          if (layer.type === "wall") {
+            color = colors.wall;
+          } else if (layer.type === "segment") {
+            const idx = this._segmentIndex(layer.metaData && layer.metaData.segmentId);
+            const useAccent = this._materialPattern(layer.metaData && layer.metaData.material, px, y);
+            color = useAccent ? colors.segmentAccent[idx] : colors.segments[idx];
+          }
+          pixelCtx.fillStyle = this._rgbString(color);
+          pixelCtx.fillRect(
+            Math.round(px - bounds.minX),
+            Math.round(y - bounds.minY),
+            1,
+            1
+          );
+        }
       }
     }
 
@@ -366,26 +422,6 @@ class ValetudoHassCard extends HTMLElement {
       Math.round(bounds.height * scale)
     );
 
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(
-      padding,
-      padding,
-      Math.round(bounds.width * scale),
-      Math.round(bounds.height * scale)
-    );
-    ctx.clip();
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.12)";
-    ctx.lineWidth = 1;
-    const lineGap = Math.max(10, Math.round(18 * scale));
-    for (let y = padding + 10; y < padding + bounds.height * scale; y += lineGap) {
-      ctx.beginPath();
-      ctx.moveTo(padding, y);
-      ctx.lineTo(padding + bounds.width * scale, y);
-      ctx.stroke();
-    }
-    ctx.restore();
-
     const entities = map.entities || [];
     let robot = null;
     let charger = null;
@@ -394,7 +430,8 @@ class ValetudoHassCard extends HTMLElement {
       const entity = entities[i];
       const points = this._normalizePoints(entity.points || [], pixelSize);
       if (entity.type === "carpet") {
-        this._drawPolygon(ctx, points, tx, ty, this._withAlpha("#2f302f", 0.12), this._withAlpha("#2f302f", 0.18));
+        const carpetBase = this._hexToRgb("#2f302f");
+        this._drawPolygon(ctx, points, tx, ty, this._rgbaString(carpetBase, 0.10), this._rgbaString(carpetBase, 0.14));
         ctx.save();
         ctx.beginPath();
         ctx.moveTo(tx(points[0]), ty(points[1]));
@@ -403,7 +440,7 @@ class ValetudoHassCard extends HTMLElement {
         }
         ctx.closePath();
         ctx.clip();
-        ctx.strokeStyle = "rgba(34, 36, 38, 0.28)";
+        ctx.strokeStyle = "rgba(34, 36, 38, 0.18)";
         ctx.lineWidth = 1;
         for (let x = -cssHeight; x < cssWidth + cssHeight; x += 6) {
           ctx.beginPath();
@@ -419,7 +456,7 @@ class ValetudoHassCard extends HTMLElement {
       } else if (entity.type === "charger_location") {
         charger = { metaData: entity.metaData || {}, points: points };
       } else if (entity.__class === "PolygonMapEntity") {
-        this._drawPolygon(ctx, points, tx, ty, null, this._withAlpha("#181a1d", 0.28));
+        this._drawPolygon(ctx, points, tx, ty, null, "rgba(24, 26, 29, 0.18)");
       }
     }
 
