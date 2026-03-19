@@ -79,8 +79,10 @@ class ValetudoHassCard extends HTMLElement {
       return;
     }
 
+    const apiPath = nextUrl.indexOf("/api/") === 0 ? nextUrl.substring(5) : nextUrl;
+
     this._mapFetchInFlight = this._hass
-      .callApi("GET", nextUrl)
+      .callApi("GET", apiPath)
       .then((payload) => {
         this._mapPayload = payload;
         this._mapNonce = nextNonce;
