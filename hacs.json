@@ -2,5 +2,5 @@
   "name": "Valetudo HASS Card",
   "render_readme": true,
   "icon": "mdi:robot-vacuum",
-  "filename": "dist/valetudo-hass-card.js"
+  "filename": "valetudo-hass-card.js"
 }
