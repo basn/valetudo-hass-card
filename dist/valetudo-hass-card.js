@@ -30,7 +30,7 @@ class ValetudoHassCard extends HTMLElement {
   }
 
   callService(domain, service) {
-    if (!this._hass || !this._config?.vacuum) {
+    if (!this._hass || !this._config || !this._config.vacuum) {
       return;
     }
     this._hass.callService(domain, service, { entity_id: this._config.vacuum });
@@ -46,7 +46,7 @@ class ValetudoHassCard extends HTMLElement {
       return;
     }
 
-    const vacuum = this._hass?.states?.[this._config.vacuum];
+    const vacuum = this._hass && this._hass.states ? this._hass.states[this._config.vacuum] : undefined;
 
     if (!vacuum) {
       this.shadowRoot.innerHTML = `
@@ -86,10 +86,23 @@ class ValetudoHassCard extends HTMLElement {
       </ha-card>
     `;
 
-    this.shadowRoot.getElementById("start")?.addEventListener("click", () => this.callService("vacuum", "start"));
-    this.shadowRoot.getElementById("pause")?.addEventListener("click", () => this.callService("vacuum", "pause"));
-    this.shadowRoot.getElementById("stop")?.addEventListener("click", () => this.callService("vacuum", "stop"));
-    this.shadowRoot.getElementById("dock")?.addEventListener("click", () => this.callService("vacuum", "return_to_base"));
+    const startButton = this.shadowRoot.getElementById("start");
+    const pauseButton = this.shadowRoot.getElementById("pause");
+    const stopButton = this.shadowRoot.getElementById("stop");
+    const dockButton = this.shadowRoot.getElementById("dock");
+
+    if (startButton) {
+      startButton.addEventListener("click", () => this.callService("vacuum", "start"));
+    }
+    if (pauseButton) {
+      pauseButton.addEventListener("click", () => this.callService("vacuum", "pause"));
+    }
+    if (stopButton) {
+      stopButton.addEventListener("click", () => this.callService("vacuum", "stop"));
+    }
+    if (dockButton) {
+      dockButton.addEventListener("click", () => this.callService("vacuum", "return_to_base"));
+    }
   }
 
   styles() {
@@ -134,9 +147,11 @@ class ValetudoHassCard extends HTMLElement {
   }
 }
 
-customElements.define("valetudo-hass-card", ValetudoHassCard);
+if (!customElements.get("valetudo-hass-card")) {
+  customElements.define("valetudo-hass-card", ValetudoHassCard);
+}
 
-console.info("valetudo-hass-card minimal build 2026-03-19");
+console.info("valetudo-hass-card compatibility build 2026-03-19");
 
 window.customCards = window.customCards || [];
 window.customCards.push({
