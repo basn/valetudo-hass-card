@@ -1,6 +1,6 @@
 class ValetudoHassCard extends HTMLElement {
   static get VERSION() {
-    return "valetudo-match-1";
+    return "valetudo-ui-thermostat-1";
   }
 
   static getStubConfig() {
@@ -516,23 +516,25 @@ class ValetudoHassCard extends HTMLElement {
 
     const objectId = this._config.vacuum.split(".")[1];
     const battery = vacuum.attributes.battery_level ?? this._state("sensor." + objectId + "_battery")?.state ?? "-";
-    const dock = vacuum.attributes.dock_status ?? this._state("sensor." + objectId + "_dock_status")?.state ?? "-";
-    const mode = vacuum.attributes.operation_mode ?? this._state("sensor." + objectId + "_operation_mode")?.state ?? "-";
     const mapReady = !!(this._mapPayload && this._mapPayload.map);
     const mapError = this._mapPayload && this._mapPayload.error;
+    const runningStates = new Set(["cleaning", "returning", "moving", "segment_cleaning", "spot_cleaning"]);
+    const isRunning = runningStates.has(String(vacuum.state || "").toLowerCase());
+    const primaryAction = isRunning
+      ? { label: "Pause", service: "pause", icon: "mdi:pause" }
+      : { label: "Start", service: "start", icon: "mdi:play" };
+    const secondaryAction = isRunning
+      ? { label: "Return to dock", service: "return_to_base", icon: "mdi:home" }
+      : { label: "Stop", service: "stop", icon: "mdi:stop" };
 
     this.shadowRoot.innerHTML = this.styles() + `
       <ha-card>
         <div class="content">
-          <div class="top">
-            <div>
-              <div class="title">${vacuum.attributes.friendly_name || this._config.vacuum}</div>
-              <div class="state">${vacuum.state}</div>
-            </div>
-            <div class="meta">
-              <div>build ${ValetudoHassCard.VERSION}</div>
-                  <div>${battery !== "-" ? battery + "%" : "-"}</div>
-                  <div>${dock}</div>
+          <div class="header">
+            <div class="title">${vacuum.attributes.friendly_name || this._config.vacuum}</div>
+            <div class="chips">
+              <span class="chip">${vacuum.state}</span>
+              <span class="chip">${battery !== "-" ? battery + "%" : "-"}</span>
             </div>
           </div>
 
@@ -543,37 +545,26 @@ class ValetudoHassCard extends HTMLElement {
             </div>
           </div>
 
-          <div class="details">
-            <div><strong>Mode:</strong> ${mode}</div>
-            <div><strong>Map nonce:</strong> ${vacuum.attributes.map_nonce || "-"}</div>
-          </div>
-
           <div class="buttons">
-            <button id="start">Start</button>
-            <button id="pause">Pause</button>
-            <button id="stop">Stop</button>
-            <button id="dock">Dock</button>
+            <button id="primary" class="btn primary" aria-label="${primaryAction.label}" title="${primaryAction.label}">
+              <ha-icon icon="${primaryAction.icon}"></ha-icon>
+            </button>
+            <button id="secondary" class="btn" aria-label="${secondaryAction.label}" title="${secondaryAction.label}">
+              <ha-icon icon="${secondaryAction.icon}"></ha-icon>
+            </button>
           </div>
         </div>
       </ha-card>
     `;
 
-    const startButton = this.shadowRoot.getElementById("start");
-    const pauseButton = this.shadowRoot.getElementById("pause");
-    const stopButton = this.shadowRoot.getElementById("stop");
-    const dockButton = this.shadowRoot.getElementById("dock");
+    const primaryButton = this.shadowRoot.getElementById("primary");
+    const secondaryButton = this.shadowRoot.getElementById("secondary");
 
-    if (startButton) {
-      startButton.addEventListener("click", () => this._callService("vacuum", "start"));
+    if (primaryButton) {
+      primaryButton.addEventListener("click", () => this._callService("vacuum", primaryAction.service));
     }
-    if (pauseButton) {
-      pauseButton.addEventListener("click", () => this._callService("vacuum", "pause"));
-    }
-    if (stopButton) {
-      stopButton.addEventListener("click", () => this._callService("vacuum", "stop"));
-    }
-    if (dockButton) {
-      dockButton.addEventListener("click", () => this._callService("vacuum", "return_to_base"));
+    if (secondaryButton) {
+      secondaryButton.addEventListener("click", () => this._callService("vacuum", secondaryAction.service));
     }
 
     const canvas = this.shadowRoot.getElementById("map");
@@ -590,25 +581,32 @@ class ValetudoHassCard extends HTMLElement {
         }
         .content {
           padding: 16px;
+          display: grid;
+          gap: 12px;
         }
-        .top {
+        .header {
           display: flex;
           justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
           gap: 12px;
-          margin-bottom: 12px;
         }
         .title {
-          font-size: 1.1rem;
+          font-size: 1.2rem;
           font-weight: 600;
         }
-        .state {
-          color: var(--secondary-text-color);
-          margin-top: 4px;
+        .chips {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
         }
-        .meta {
-          text-align: right;
-          color: var(--secondary-text-color);
-          font-size: 0.92rem;
+        .chip {
+          padding: 4px 10px;
+          border-radius: 999px;
+          border: 1px solid var(--divider-color);
+          background: color-mix(in srgb, var(--card-background-color) 82%, var(--primary-color) 18%);
+          color: var(--primary-text-color);
+          font-size: 0.85rem;
         }
         .map-wrap {
           position: relative;
@@ -617,7 +615,6 @@ class ValetudoHassCard extends HTMLElement {
           background: transparent;
           border: 1px solid rgba(124, 138, 150, 0.18);
           min-height: 220px;
-          margin-bottom: 12px;
         }
         canvas {
           display: block;
@@ -636,14 +633,9 @@ class ValetudoHassCard extends HTMLElement {
         .map-placeholder.hidden {
           display: none;
         }
-        .details {
-          display: grid;
-          gap: 6px;
-          margin-bottom: 14px;
-        }
         .buttons {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          display: flex;
+          flex-wrap: wrap;
           gap: 8px;
         }
         .error {
@@ -652,14 +644,29 @@ class ValetudoHassCard extends HTMLElement {
           white-space: pre-wrap;
           word-break: break-word;
         }
-        button {
-          border: none;
+        .btn {
+          border: 1px solid var(--divider-color);
           border-radius: 10px;
-          padding: 10px 12px;
-          background: var(--primary-color);
-          color: white;
+          width: 48px;
+          height: 48px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--secondary-background-color, var(--card-background-color));
+          color: var(--secondary-text-color);
           font: inherit;
           cursor: pointer;
+          transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+        }
+        .btn:hover {
+          background: color-mix(in srgb, var(--secondary-background-color, var(--card-background-color)) 85%, var(--primary-color) 15%);
+          color: var(--primary-text-color);
+        }
+        .btn.primary {
+          color: var(--state-icon-active-color, var(--primary-color));
+        }
+        .btn ha-icon {
+          --mdc-icon-size: 24px;
         }
       </style>
     `;
