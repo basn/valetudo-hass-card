@@ -460,38 +460,15 @@ class ValetudoHassCard extends HTMLElement {
       }
     }
 
-    let chargerPos = null;
-    if (charger && charger.points && charger.points.length >= 2) {
-      const cx = tx(charger.points[0]);
-      const cy = ty(charger.points[1]);
-      chargerPos = { x: cx, y: cy };
-      ctx.fillStyle = "#f2f4f5";
-      ctx.beginPath();
-      ctx.arc(cx, cy, 6.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#8d949a";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, 6.5, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
     let robotPos = null;
     if (robot && robot.points && robot.points.length >= 2) {
       const rx = tx(robot.points[0]);
       const ry = ty(robot.points[1]);
       const angle = (((robot.metaData || {}).angle || 0) - 90) * Math.PI / 180;
       robotPos = { x: rx, y: ry, angle };
-
-      ctx.strokeStyle = "#f2f4f5";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(rx, ry);
-      ctx.lineTo(rx + Math.cos(angle) * 10, ry + Math.sin(angle) * 10);
-      ctx.stroke();
     }
 
-    return { robot: robotPos, charger: chargerPos };
+    return { robot: robotPos };
   }
 
   render() {
@@ -527,19 +504,17 @@ class ValetudoHassCard extends HTMLElement {
         <div class="content">
           <div class="header">
             <div class="title">${vacuum.attributes.friendly_name || this._config.vacuum}</div>
-            <div class="header-right">
-              <div class="chips">
-                <span class="chip">${vacuum.state}</span>
-                <span class="chip">${battery !== "-" ? battery + "%" : "-"}</span>
-              </div>
-              <div class="top-actions">
-                <button id="primary" class="btn primary" aria-label="${primaryAction.label}" title="${primaryAction.label}">
-                  <ha-icon icon="${primaryAction.icon}"></ha-icon>
-                </button>
-                <button id="secondary" class="btn" aria-label="${secondaryAction.label}" title="${secondaryAction.label}">
-                  <ha-icon icon="${secondaryAction.icon}"></ha-icon>
-                </button>
-              </div>
+            <div class="top-actions">
+              <button id="primary" class="btn primary" aria-label="${primaryAction.label}" title="${primaryAction.label}">
+                <ha-icon icon="${primaryAction.icon}"></ha-icon>
+              </button>
+              <button id="secondary" class="btn" aria-label="${secondaryAction.label}" title="${secondaryAction.label}">
+                <ha-icon icon="${secondaryAction.icon}"></ha-icon>
+              </button>
+            </div>
+            <div class="chips">
+              <span class="chip">${vacuum.state}</span>
+              <span class="chip">${battery !== "-" ? battery + "%" : "-"}</span>
             </div>
           </div>
 
@@ -593,27 +568,21 @@ class ValetudoHassCard extends HTMLElement {
           gap: 12px;
         }
         .header {
-          display: flex;
-          justify-content: space-between;
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
           align-items: center;
-          flex-wrap: wrap;
           gap: 12px;
-        }
-        .header-right {
-          display: flex;
-          align-items: center;
-          justify-content: flex-end;
-          gap: 10px;
-          flex-wrap: wrap;
         }
         .title {
           font-size: 1.2rem;
           font-weight: 600;
+          justify-self: start;
         }
         .chips {
           display: flex;
           gap: 8px;
           flex-wrap: wrap;
+          justify-self: end;
         }
         .chip {
           padding: 4px 10px;
@@ -665,6 +634,7 @@ class ValetudoHassCard extends HTMLElement {
           display: flex;
           gap: 8px;
           align-items: center;
+          justify-self: center;
         }
         .error {
           color: var(--error-color);
@@ -695,6 +665,24 @@ class ValetudoHassCard extends HTMLElement {
         }
         .btn ha-icon {
           --mdc-icon-size: 24px;
+        }
+        @media (max-width: 640px) {
+          .header {
+            grid-template-columns: 1fr auto;
+            grid-template-areas:
+              "title actions"
+              "chips chips";
+          }
+          .title {
+            grid-area: title;
+          }
+          .top-actions {
+            grid-area: actions;
+          }
+          .chips {
+            grid-area: chips;
+            justify-self: start;
+          }
         }
       </style>
     `;
