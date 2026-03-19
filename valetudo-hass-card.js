@@ -164,19 +164,19 @@ class ValetudoHassCard extends HTMLElement {
 
   _segmentColor(segmentId, active) {
     const palette = [
-      "#78c4d4",
-      "#6ea8fe",
-      "#8bc34a",
-      "#ffd166",
-      "#ff8fab",
-      "#b388eb",
-      "#80cbc4",
-      "#f4a261",
-      "#90be6d",
-      "#e76f51",
+      "#4da3a6",
+      "#74a95f",
+      "#9a6b34",
+      "#577f96",
+      "#8d9b49",
+      "#7a689a",
+      "#5f9486",
+      "#b08b45",
+      "#6d8f57",
+      "#8f6f52",
     ];
     const index = Math.abs(parseInt(segmentId || "0", 10) || 0) % palette.length;
-    return active ? palette[index] : this._withAlpha(palette[index], 0.72);
+    return active ? palette[index] : this._withAlpha(palette[index], 0.92);
   }
 
   _withAlpha(hex, alpha) {
@@ -311,8 +311,6 @@ class ValetudoHassCard extends HTMLElement {
     const ctx = canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssWidth, cssHeight);
-    ctx.fillStyle = "#f3f5f8";
-    ctx.fillRect(0, 0, cssWidth, cssHeight);
 
     const tx = (x) => padding + (x - bounds.minX) * scale;
     const ty = (y) => padding + (y - bounds.minY) * scale;
@@ -321,13 +319,13 @@ class ValetudoHassCard extends HTMLElement {
     for (let i = 0; i < layers.length; i += 1) {
       const layer = layers[i];
       const compressed = layer.compressedPixels || [];
-      let fill = "#dfe7ee";
+      let fill = "#7c8a96";
       if (layer.type === "wall") {
-        fill = "#2f3845";
+        fill = "#0f141b";
       } else if (layer.type === "segment") {
         fill = this._segmentColor(layer.metaData && layer.metaData.segmentId, layer.metaData && layer.metaData.active);
       } else if (layer.type === "floor") {
-        fill = "#e6edf3";
+        fill = "#a9b3bc";
       }
 
       ctx.fillStyle = fill;
@@ -347,9 +345,9 @@ class ValetudoHassCard extends HTMLElement {
       const entity = entities[i];
       const points = this._normalizePoints(entity.points || [], pixelSize);
       if (entity.type === "carpet") {
-        this._drawPolygon(ctx, points, tx, ty, this._withAlpha("#8d6e63", 0.08), this._withAlpha("#8d6e63", 0.45));
+        this._drawPolygon(ctx, points, tx, ty, this._withAlpha("#d6a15c", 0.12), this._withAlpha("#d6a15c", 0.35));
       } else if (entity.type === "path" || entity.type === "predicted_path") {
-        this._drawPolyline(ctx, points, tx, ty, entity.type === "path" ? "#1565c0" : "#9e9e9e", entity.type === "path" ? 2 : 1);
+        this._drawPolyline(ctx, points, tx, ty, entity.type === "path" ? "#6fd3ff" : "#7c8a96", entity.type === "path" ? 2 : 1);
       } else if (entity.type === "robot_position") {
         robot = { metaData: entity.metaData || {}, points: points };
       } else if (entity.type === "charger_location") {
@@ -362,9 +360,9 @@ class ValetudoHassCard extends HTMLElement {
     if (charger && charger.points && charger.points.length >= 2) {
       const cx = tx(charger.points[0]);
       const cy = ty(charger.points[1]);
-      ctx.fillStyle = "#455a64";
+      ctx.fillStyle = "#7bcf7e";
       ctx.fillRect(cx - 6, cy - 6, 12, 12);
-      ctx.strokeStyle = "#ffffff";
+      ctx.strokeStyle = "#0f141b";
       ctx.lineWidth = 2;
       ctx.strokeRect(cx - 6, cy - 6, 12, 12);
     }
@@ -374,12 +372,18 @@ class ValetudoHassCard extends HTMLElement {
       const ry = ty(robot.points[1]);
       const angle = (((robot.metaData || {}).angle || 0) - 90) * Math.PI / 180;
 
-      ctx.fillStyle = "#111827";
+      ctx.fillStyle = "#ffffff";
       ctx.beginPath();
       ctx.arc(rx, ry, 8, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.strokeStyle = "#ffffff";
+      ctx.strokeStyle = "#0f141b";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(rx, ry, 8, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = "#0f141b";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(rx, ry);
@@ -503,8 +507,8 @@ class ValetudoHassCard extends HTMLElement {
           position: relative;
           border-radius: 14px;
           overflow: hidden;
-          background: #f3f5f8;
-          border: 1px solid rgba(92, 107, 122, 0.12);
+          background: transparent;
+          border: 1px solid rgba(124, 138, 150, 0.18);
           min-height: 220px;
           margin-bottom: 12px;
         }
@@ -519,7 +523,7 @@ class ValetudoHassCard extends HTMLElement {
           align-items: center;
           justify-content: center;
           color: var(--secondary-text-color);
-          background: rgba(243, 245, 248, 0.88);
+          background: rgba(15, 20, 27, 0.4);
           font-size: 0.95rem;
         }
         .map-placeholder.hidden {
