@@ -1,6 +1,6 @@
 class ValetudoHassCard extends HTMLElement {
   static get VERSION() {
-    return "map-cleanup-1";
+    return "480055c";
   }
 
   static getStubConfig() {
