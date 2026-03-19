@@ -164,19 +164,19 @@ class ValetudoHassCard extends HTMLElement {
 
   _segmentColor(segmentId, active) {
     const palette = [
-      "#4da3a6",
-      "#74a95f",
-      "#9a6b34",
-      "#577f96",
-      "#8d9b49",
-      "#7a689a",
-      "#5f9486",
-      "#b08b45",
-      "#6d8f57",
-      "#8f6f52",
+      "#1d959b",
+      "#76b12f",
+      "#c65c1c",
+      "#2a98a3",
+      "#7eb53a",
+      "#8f6fae",
+      "#32949a",
+      "#cd6321",
+      "#78b039",
+      "#2c959d",
     ];
     const index = Math.abs(parseInt(segmentId || "0", 10) || 0) % palette.length;
-    return active ? palette[index] : this._withAlpha(palette[index], 0.92);
+    return active ? palette[index] : this._withAlpha(palette[index], 0.98);
   }
 
   _withAlpha(hex, alpha) {
@@ -316,6 +316,14 @@ class ValetudoHassCard extends HTMLElement {
     const tx = (x) => padding + (x - bounds.minX) * scale;
     const ty = (y) => padding + (y - bounds.minY) * scale;
 
+    ctx.fillStyle = "#1f1f1f";
+    ctx.fillRect(
+      padding - 2,
+      padding - 2,
+      Math.round(bounds.width * scale) + 4,
+      Math.round(bounds.height * scale) + 4
+    );
+
     const pixelCanvas = document.createElement("canvas");
     pixelCanvas.width = bounds.width;
     pixelCanvas.height = bounds.height;
@@ -327,13 +335,13 @@ class ValetudoHassCard extends HTMLElement {
     for (let i = 0; i < layers.length; i += 1) {
       const layer = layers[i];
       const compressed = layer.compressedPixels || [];
-      let fill = "#7c8a96";
+      let fill = "#4d535a";
       if (layer.type === "wall") {
-        fill = "#0f141b";
+        fill = "#24272c";
       } else if (layer.type === "segment") {
         fill = this._segmentColor(layer.metaData && layer.metaData.segmentId, layer.metaData && layer.metaData.active);
       } else if (layer.type === "floor") {
-        fill = "#a9b3bc";
+        fill = "#8f989f";
       }
 
       pixelCtx.fillStyle = fill;
@@ -358,6 +366,26 @@ class ValetudoHassCard extends HTMLElement {
       Math.round(bounds.height * scale)
     );
 
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(
+      padding,
+      padding,
+      Math.round(bounds.width * scale),
+      Math.round(bounds.height * scale)
+    );
+    ctx.clip();
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.12)";
+    ctx.lineWidth = 1;
+    const lineGap = Math.max(10, Math.round(18 * scale));
+    for (let y = padding + 10; y < padding + bounds.height * scale; y += lineGap) {
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(padding + bounds.width * scale, y);
+      ctx.stroke();
+    }
+    ctx.restore();
+
     const entities = map.entities || [];
     let robot = null;
     let charger = null;
@@ -366,26 +394,47 @@ class ValetudoHassCard extends HTMLElement {
       const entity = entities[i];
       const points = this._normalizePoints(entity.points || [], pixelSize);
       if (entity.type === "carpet") {
-        this._drawPolygon(ctx, points, tx, ty, this._withAlpha("#d6a15c", 0.12), this._withAlpha("#d6a15c", 0.35));
+        this._drawPolygon(ctx, points, tx, ty, this._withAlpha("#2f302f", 0.12), this._withAlpha("#2f302f", 0.18));
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(tx(points[0]), ty(points[1]));
+        for (let p = 2; p < points.length; p += 2) {
+          ctx.lineTo(tx(points[p]), ty(points[p + 1]));
+        }
+        ctx.closePath();
+        ctx.clip();
+        ctx.strokeStyle = "rgba(34, 36, 38, 0.28)";
+        ctx.lineWidth = 1;
+        for (let x = -cssHeight; x < cssWidth + cssHeight; x += 6) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x + cssHeight, cssHeight);
+          ctx.stroke();
+        }
+        ctx.restore();
       } else if (entity.type === "path" || entity.type === "predicted_path") {
-        this._drawPolyline(ctx, points, tx, ty, entity.type === "path" ? "#6fd3ff" : "#7c8a96", entity.type === "path" ? 2 : 1);
+        this._drawPolyline(ctx, points, tx, ty, entity.type === "path" ? "#b9ecff" : "#8a939a", entity.type === "path" ? 2.5 : 1);
       } else if (entity.type === "robot_position") {
         robot = { metaData: entity.metaData || {}, points: points };
       } else if (entity.type === "charger_location") {
         charger = { metaData: entity.metaData || {}, points: points };
       } else if (entity.__class === "PolygonMapEntity") {
-        this._drawPolygon(ctx, points, tx, ty, null, this._withAlpha("#5c6b7a", 0.18));
+        this._drawPolygon(ctx, points, tx, ty, null, this._withAlpha("#181a1d", 0.28));
       }
     }
 
     if (charger && charger.points && charger.points.length >= 2) {
       const cx = tx(charger.points[0]);
       const cy = ty(charger.points[1]);
-      ctx.fillStyle = "#7bcf7e";
-      ctx.fillRect(cx - 6, cy - 6, 12, 12);
-      ctx.strokeStyle = "#0f141b";
+      ctx.fillStyle = "#f2f4f5";
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#8d949a";
       ctx.lineWidth = 2;
-      ctx.strokeRect(cx - 6, cy - 6, 12, 12);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6.5, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     if (robot && robot.points && robot.points.length >= 2) {
@@ -393,18 +442,18 @@ class ValetudoHassCard extends HTMLElement {
       const ry = ty(robot.points[1]);
       const angle = (((robot.metaData || {}).angle || 0) - 90) * Math.PI / 180;
 
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = "#f2f4f5";
       ctx.beginPath();
       ctx.arc(rx, ry, 8, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.strokeStyle = "#0f141b";
-      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = "#8d949a";
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(rx, ry, 8, 0, Math.PI * 2);
       ctx.stroke();
 
-      ctx.strokeStyle = "#0f141b";
+      ctx.strokeStyle = "#3a3f45";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(rx, ry);
