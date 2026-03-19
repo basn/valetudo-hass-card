@@ -1,6 +1,6 @@
 class ValetudoHassCard extends HTMLElement {
   static get VERSION() {
-    return "valetudo-ui-thermostat-1";
+    return "valetudo-ui-compact-1";
   }
 
   static getStubConfig() {
@@ -345,7 +345,7 @@ class ValetudoHassCard extends HTMLElement {
 
   _drawMap(canvas, payload) {
     if (!canvas || !payload || !payload.map) {
-      return;
+      return { robot: null, charger: null };
     }
 
     const map = payload.map;
@@ -460,9 +460,11 @@ class ValetudoHassCard extends HTMLElement {
       }
     }
 
+    let chargerPos = null;
     if (charger && charger.points && charger.points.length >= 2) {
       const cx = tx(charger.points[0]);
       const cy = ty(charger.points[1]);
+      chargerPos = { x: cx, y: cy };
       ctx.fillStyle = "#f2f4f5";
       ctx.beginPath();
       ctx.arc(cx, cy, 6.5, 0, Math.PI * 2);
@@ -474,29 +476,22 @@ class ValetudoHassCard extends HTMLElement {
       ctx.stroke();
     }
 
+    let robotPos = null;
     if (robot && robot.points && robot.points.length >= 2) {
       const rx = tx(robot.points[0]);
       const ry = ty(robot.points[1]);
       const angle = (((robot.metaData || {}).angle || 0) - 90) * Math.PI / 180;
+      robotPos = { x: rx, y: ry, angle };
 
-      ctx.fillStyle = "#f2f4f5";
-      ctx.beginPath();
-      ctx.arc(rx, ry, 8, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = "#8d949a";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(rx, ry, 8, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.strokeStyle = "#3a3f45";
+      ctx.strokeStyle = "#f2f4f5";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(rx, ry);
-      ctx.lineTo(rx + Math.cos(angle) * 12, ry + Math.sin(angle) * 12);
+      ctx.lineTo(rx + Math.cos(angle) * 10, ry + Math.sin(angle) * 10);
       ctx.stroke();
     }
+
+    return { robot: robotPos, charger: chargerPos };
   }
 
   render() {
@@ -532,26 +527,28 @@ class ValetudoHassCard extends HTMLElement {
         <div class="content">
           <div class="header">
             <div class="title">${vacuum.attributes.friendly_name || this._config.vacuum}</div>
-            <div class="chips">
-              <span class="chip">${vacuum.state}</span>
-              <span class="chip">${battery !== "-" ? battery + "%" : "-"}</span>
+            <div class="header-right">
+              <div class="chips">
+                <span class="chip">${vacuum.state}</span>
+                <span class="chip">${battery !== "-" ? battery + "%" : "-"}</span>
+              </div>
+              <div class="top-actions">
+                <button id="primary" class="btn primary" aria-label="${primaryAction.label}" title="${primaryAction.label}">
+                  <ha-icon icon="${primaryAction.icon}"></ha-icon>
+                </button>
+                <button id="secondary" class="btn" aria-label="${secondaryAction.label}" title="${secondaryAction.label}">
+                  <ha-icon icon="${secondaryAction.icon}"></ha-icon>
+                </button>
+              </div>
             </div>
           </div>
 
           <div class="map-wrap">
             <canvas id="map"></canvas>
+            <ha-icon id="map-robot-icon" class="map-icon robot hidden" icon="mdi:robot-vacuum"></ha-icon>
             <div class="map-placeholder ${mapReady ? "hidden" : ""}">
               ${mapError ? "Map error: " + mapError : (this._mapUrl ? "Loading map..." : "Map endpoint unavailable")}
             </div>
-          </div>
-
-          <div class="buttons">
-            <button id="primary" class="btn primary" aria-label="${primaryAction.label}" title="${primaryAction.label}">
-              <ha-icon icon="${primaryAction.icon}"></ha-icon>
-            </button>
-            <button id="secondary" class="btn" aria-label="${secondaryAction.label}" title="${secondaryAction.label}">
-              <ha-icon icon="${secondaryAction.icon}"></ha-icon>
-            </button>
           </div>
         </div>
       </ha-card>
@@ -568,8 +565,19 @@ class ValetudoHassCard extends HTMLElement {
     }
 
     const canvas = this.shadowRoot.getElementById("map");
+    const robotIcon = this.shadowRoot.getElementById("map-robot-icon");
     if (canvas && mapReady) {
-      this._drawMap(canvas, this._mapPayload);
+      const drawn = this._drawMap(canvas, this._mapPayload);
+      if (robotIcon && drawn && drawn.robot) {
+        robotIcon.classList.remove("hidden");
+        robotIcon.style.left = drawn.robot.x + "px";
+        robotIcon.style.top = drawn.robot.y + "px";
+        robotIcon.style.transform = "translate(-50%, -50%) rotate(" + drawn.robot.angle + "rad)";
+      } else if (robotIcon) {
+        robotIcon.classList.add("hidden");
+      }
+    } else if (robotIcon) {
+      robotIcon.classList.add("hidden");
     }
   }
 
@@ -590,6 +598,13 @@ class ValetudoHassCard extends HTMLElement {
           align-items: center;
           flex-wrap: wrap;
           gap: 12px;
+        }
+        .header-right {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 10px;
+          flex-wrap: wrap;
         }
         .title {
           font-size: 1.2rem;
@@ -616,6 +631,19 @@ class ValetudoHassCard extends HTMLElement {
           border: 1px solid rgba(124, 138, 150, 0.18);
           min-height: 220px;
         }
+        .map-icon {
+          position: absolute;
+          z-index: 2;
+          pointer-events: none;
+          color: #f2f4f5;
+          filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+        }
+        .map-icon.robot {
+          --mdc-icon-size: 20px;
+        }
+        .map-icon.hidden {
+          display: none;
+        }
         canvas {
           display: block;
           width: 100%;
@@ -633,10 +661,10 @@ class ValetudoHassCard extends HTMLElement {
         .map-placeholder.hidden {
           display: none;
         }
-        .buttons {
+        .top-actions {
           display: flex;
-          flex-wrap: wrap;
           gap: 8px;
+          align-items: center;
         }
         .error {
           color: var(--error-color);
