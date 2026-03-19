@@ -79,27 +79,8 @@ class ValetudoHassCard extends HTMLElement {
       return;
     }
 
-    const headers = {};
-    const accessToken =
-      this._hass &&
-      this._hass.auth &&
-      this._hass.auth.data &&
-      this._hass.auth.data.accessToken;
-
-    if (accessToken) {
-      headers.Authorization = "Bearer " + accessToken;
-    }
-
-    this._mapFetchInFlight = fetch(nextUrl, {
-      credentials: "same-origin",
-      headers: headers,
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Map request failed: " + response.status);
-        }
-        return response.json();
-      })
+    this._mapFetchInFlight = this._hass
+      .callApi("GET", nextUrl)
       .then((payload) => {
         this._mapPayload = payload;
         this._mapNonce = nextNonce;
@@ -107,6 +88,10 @@ class ValetudoHassCard extends HTMLElement {
       })
       .catch((err) => {
         console.error("valetudo-hass-card map fetch failed", err);
+        this._mapPayload = {
+          error: err && err.message ? err.message : String(err),
+        };
+        this._safeRender();
       })
       .finally(() => {
         this._mapFetchInFlight = null;
@@ -372,6 +357,7 @@ class ValetudoHassCard extends HTMLElement {
     const dock = this._state("sensor." + objectId + "_dock_status");
     const mode = this._state("sensor." + objectId + "_operation_mode");
     const mapReady = !!(this._mapPayload && this._mapPayload.map);
+    const mapError = this._mapPayload && this._mapPayload.error;
 
     this.shadowRoot.innerHTML = this.styles() + `
       <ha-card>
@@ -390,7 +376,7 @@ class ValetudoHassCard extends HTMLElement {
           <div class="map-wrap">
             <canvas id="map"></canvas>
             <div class="map-placeholder ${mapReady ? "hidden" : ""}">
-              ${this._mapUrl ? "Loading map..." : "Map endpoint unavailable"}
+              ${mapError ? "Map error: " + mapError : (this._mapUrl ? "Loading map..." : "Map endpoint unavailable")}
             </div>
           </div>
 
