@@ -515,9 +515,9 @@ class ValetudoHassCard extends HTMLElement {
     }
 
     const objectId = this._config.vacuum.split(".")[1];
-    const battery = this._state("sensor." + objectId + "_battery");
-    const dock = this._state("sensor." + objectId + "_dock_status");
-    const mode = this._state("sensor." + objectId + "_operation_mode");
+    const battery = vacuum.attributes.battery_level ?? this._state("sensor." + objectId + "_battery")?.state ?? "-";
+    const dock = vacuum.attributes.dock_status ?? this._state("sensor." + objectId + "_dock_status")?.state ?? "-";
+    const mode = vacuum.attributes.operation_mode ?? this._state("sensor." + objectId + "_operation_mode")?.state ?? "-";
     const mapReady = !!(this._mapPayload && this._mapPayload.map);
     const mapError = this._mapPayload && this._mapPayload.error;
 
@@ -531,8 +531,8 @@ class ValetudoHassCard extends HTMLElement {
             </div>
             <div class="meta">
               <div>build ${ValetudoHassCard.VERSION}</div>
-              <div>${battery ? battery.state + "%" : "-"}</div>
-              <div>${dock ? dock.state : "-"}</div>
+                  <div>${battery !== "-" ? battery + "%" : "-"}</div>
+                  <div>${dock}</div>
             </div>
           </div>
 
@@ -544,7 +544,7 @@ class ValetudoHassCard extends HTMLElement {
           </div>
 
           <div class="details">
-            <div><strong>Mode:</strong> ${mode ? mode.state : "-"}</div>
+            <div><strong>Mode:</strong> ${mode}</div>
             <div><strong>Map nonce:</strong> ${vacuum.attributes.map_nonce || "-"}</div>
           </div>
 
