@@ -1,6 +1,6 @@
 class ValetudoHassCard extends HTMLElement {
   static get VERSION() {
-    return "1756541+debug1";
+    return "map-cleanup-1";
   }
 
   static getStubConfig() {
@@ -311,9 +311,17 @@ class ValetudoHassCard extends HTMLElement {
     const ctx = canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssWidth, cssHeight);
+    ctx.imageSmoothingEnabled = false;
 
     const tx = (x) => padding + (x - bounds.minX) * scale;
     const ty = (y) => padding + (y - bounds.minY) * scale;
+
+    const pixelCanvas = document.createElement("canvas");
+    pixelCanvas.width = bounds.width;
+    pixelCanvas.height = bounds.height;
+    const pixelCtx = pixelCanvas.getContext("2d");
+    pixelCtx.clearRect(0, 0, bounds.width, bounds.height);
+    pixelCtx.imageSmoothingEnabled = false;
 
     const layers = map.layers || [];
     for (let i = 0; i < layers.length; i += 1) {
@@ -328,14 +336,27 @@ class ValetudoHassCard extends HTMLElement {
         fill = "#a9b3bc";
       }
 
-      ctx.fillStyle = fill;
+      pixelCtx.fillStyle = fill;
       for (let c = 0; c < compressed.length; c += 3) {
         const x = compressed[c];
         const y = compressed[c + 1];
         const len = compressed[c + 2];
-        ctx.fillRect(tx(x), ty(y), Math.max(1, len * scale), Math.max(1, scale));
+        pixelCtx.fillRect(
+          Math.round(x - bounds.minX),
+          Math.round(y - bounds.minY),
+          Math.max(1, len),
+          1
+        );
       }
     }
+
+    ctx.drawImage(
+      pixelCanvas,
+      padding,
+      padding,
+      Math.round(bounds.width * scale),
+      Math.round(bounds.height * scale)
+    );
 
     const entities = map.entities || [];
     let robot = null;
@@ -353,7 +374,7 @@ class ValetudoHassCard extends HTMLElement {
       } else if (entity.type === "charger_location") {
         charger = { metaData: entity.metaData || {}, points: points };
       } else if (entity.__class === "PolygonMapEntity") {
-        this._drawPolygon(ctx, points, tx, ty, null, this._withAlpha("#5c6b7a", 0.35));
+        this._drawPolygon(ctx, points, tx, ty, null, this._withAlpha("#5c6b7a", 0.18));
       }
     }
 
