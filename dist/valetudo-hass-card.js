@@ -27,13 +27,13 @@ class ValetudoHassCard extends HTMLElement {
       this.attachShadow({ mode: "open" });
     }
 
-    this.render();
+    this._safeRender();
   }
 
   set hass(hass) {
     this._hass = hass;
     this._syncMapFetch();
-    this.render();
+    this._safeRender();
   }
 
   getCardSize() {
@@ -88,7 +88,7 @@ class ValetudoHassCard extends HTMLElement {
       .then((payload) => {
         this._mapPayload = payload;
         this._mapNonce = nextNonce;
-        this.render();
+        this._safeRender();
       })
       .catch((err) => {
         console.error("valetudo-hass-card map fetch failed", err);
@@ -96,6 +96,30 @@ class ValetudoHassCard extends HTMLElement {
       .finally(() => {
         this._mapFetchInFlight = null;
       });
+  }
+
+  _renderError(err) {
+    if (!this.shadowRoot) {
+      return;
+    }
+    const message = err && err.message ? err.message : String(err);
+    this.shadowRoot.innerHTML = this.styles() + `
+      <ha-card>
+        <div class="content">
+          <div class="title">Valetudo HASS Card</div>
+          <div class="error">Render error: ${message}</div>
+        </div>
+      </ha-card>
+    `;
+  }
+
+  _safeRender() {
+    try {
+      this.render();
+    } catch (err) {
+      console.error("valetudo-hass-card render failed", err);
+      this._renderError(err);
+    }
   }
 
   _segmentColor(segmentId, active) {
@@ -457,6 +481,12 @@ class ValetudoHassCard extends HTMLElement {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 8px;
+        }
+        .error {
+          color: var(--error-color);
+          margin-top: 8px;
+          white-space: pre-wrap;
+          word-break: break-word;
         }
         button {
           border: none;
