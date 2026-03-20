@@ -3,6 +3,142 @@ class ValetudoHassCard extends HTMLElement {
     return "valetudo-ui-compact-1";
   }
 
+  static get RUNNING_STATES() {
+    return new Set(["cleaning", "returning", "moving", "segment_cleaning", "spot_cleaning"]);
+  }
+
+  static get STYLES() {
+    return `
+      <style>
+        :host {
+          display: block;
+        }
+        .content {
+          padding: 16px;
+          display: grid;
+          gap: 12px;
+        }
+        .header {
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
+          align-items: center;
+          gap: 12px;
+        }
+        .title {
+          font-size: 1.2rem;
+          font-weight: 600;
+          justify-self: start;
+        }
+        .chips {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-self: end;
+        }
+        .chip {
+          padding: 4px 10px;
+          border-radius: 999px;
+          border: 1px solid var(--divider-color);
+          background: color-mix(in srgb, var(--card-background-color) 82%, var(--primary-color) 18%);
+          color: var(--primary-text-color);
+          font-size: 0.85rem;
+        }
+        .map-wrap {
+          position: relative;
+          border-radius: 14px;
+          overflow: hidden;
+          background: transparent;
+          border: 1px solid rgba(124, 138, 150, 0.18);
+          min-height: 220px;
+        }
+        .map-icon {
+          position: absolute;
+          z-index: 2;
+          pointer-events: none;
+          color: #f2f4f5;
+          filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+        }
+        .map-icon.robot {
+          --mdc-icon-size: 20px;
+        }
+        .map-icon.hidden {
+          display: none;
+        }
+        canvas {
+          display: block;
+          width: 100%;
+        }
+        .map-placeholder {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--secondary-text-color);
+          background: rgba(15, 20, 27, 0.4);
+          font-size: 0.95rem;
+        }
+        .map-placeholder.hidden {
+          display: none;
+        }
+        .top-actions {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          justify-self: center;
+        }
+        .error {
+          color: var(--error-color);
+          margin-top: 8px;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        .btn {
+          border: 1px solid var(--divider-color);
+          border-radius: 10px;
+          width: 48px;
+          height: 48px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--secondary-background-color, var(--card-background-color));
+          color: var(--secondary-text-color);
+          font: inherit;
+          cursor: pointer;
+          transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+        }
+        .btn:hover {
+          background: color-mix(in srgb, var(--secondary-background-color, var(--card-background-color)) 85%, var(--primary-color) 15%);
+          color: var(--primary-text-color);
+        }
+        .btn.primary {
+          color: var(--state-icon-active-color, var(--primary-color));
+        }
+        .btn ha-icon {
+          --mdc-icon-size: 24px;
+        }
+        @media (max-width: 640px) {
+          .header {
+            grid-template-columns: 1fr auto;
+            grid-template-areas:
+              "title actions"
+              "chips chips";
+          }
+          .title {
+            grid-area: title;
+          }
+          .top-actions {
+            grid-area: actions;
+          }
+          .chips {
+            grid-area: chips;
+            justify-self: start;
+          }
+        }
+      </style>
+    `;
+  }
+
   static getStubConfig() {
     return {
       type: "custom:valetudo-hass-card",
@@ -17,6 +153,17 @@ class ValetudoHassCard extends HTMLElement {
     this._mapNonce = null;
     this._mapPayload = null;
     this._mapUrl = null;
+    this._mapFetchInFlight = null;
+    this._abortController = null;
+    this._pixelCanvas = null;
+    this._pixelCtx = null;
+  }
+
+  disconnectedCallback() {
+    if (this._abortController) {
+      this._abortController.abort();
+      this._abortController = null;
+    }
     this._mapFetchInFlight = null;
   }
 
@@ -83,6 +230,11 @@ class ValetudoHassCard extends HTMLElement {
       return;
     }
 
+    if (this._abortController) {
+      this._abortController.abort();
+    }
+    this._abortController = new AbortController();
+
     const fetchWithAuth =
       this._hass &&
       (
@@ -90,9 +242,10 @@ class ValetudoHassCard extends HTMLElement {
         (this._hass.auth && typeof this._hass.auth.fetchWithAuth === "function" && this._hass.auth.fetchWithAuth.bind(this._hass.auth))
       );
 
+    const fetchOptions = { credentials: "same-origin", signal: this._abortController.signal };
     const request = fetchWithAuth
-      ? fetchWithAuth(nextUrl)
-      : fetch(nextUrl, { credentials: "same-origin" });
+      ? fetchWithAuth(nextUrl, fetchOptions)
+      : fetch(nextUrl, fetchOptions);
 
     this._mapFetchInFlight = request
       .then((response) => {
@@ -107,6 +260,9 @@ class ValetudoHassCard extends HTMLElement {
         this._safeRender();
       })
       .catch((err) => {
+        if (err.name === "AbortError") {
+          return;
+        }
         console.error("valetudo-hass-card map fetch failed", err);
         this._mapPayload = {
           error: this._formatError(err),
@@ -115,6 +271,9 @@ class ValetudoHassCard extends HTMLElement {
       })
       .finally(() => {
         this._mapFetchInFlight = null;
+        if (this._abortController && this._abortController.signal.aborted) {
+          this._abortController = null;
+        }
       });
   }
 
@@ -143,7 +302,7 @@ class ValetudoHassCard extends HTMLElement {
       return;
     }
     const message = err && err.message ? err.message : String(err);
-    this.shadowRoot.innerHTML = this.styles() + `
+    this.shadowRoot.innerHTML = ValetudoHassCard.STYLES + `
       <ha-card>
         <div class="content">
           <div class="title">Valetudo HASS Card</div>
@@ -377,12 +536,15 @@ class ValetudoHassCard extends HTMLElement {
       Math.round(bounds.height * scale) + 4
     );
 
-    const pixelCanvas = document.createElement("canvas");
-    pixelCanvas.width = bounds.width;
-    pixelCanvas.height = bounds.height;
-    const pixelCtx = pixelCanvas.getContext("2d");
-    pixelCtx.clearRect(0, 0, bounds.width, bounds.height);
-    pixelCtx.imageSmoothingEnabled = false;
+    if (!this._pixelCanvas || this._pixelCanvas.width !== bounds.width || this._pixelCanvas.height !== bounds.height) {
+      this._pixelCanvas = document.createElement("canvas");
+      this._pixelCanvas.width = bounds.width;
+      this._pixelCanvas.height = bounds.height;
+      this._pixelCtx = this._pixelCanvas.getContext("2d");
+      this._pixelCtx.imageSmoothingEnabled = false;
+    } else {
+      this._pixelCtx.clearRect(0, 0, bounds.width, bounds.height);
+    }
 
     const layers = map.layers || [];
     for (let i = 0; i < layers.length; i += 1) {
@@ -403,8 +565,8 @@ class ValetudoHassCard extends HTMLElement {
             const useAccent = this._materialPattern(layer.metaData && layer.metaData.material, px, y);
             color = useAccent ? colors.segmentAccent[idx] : colors.segments[idx];
           }
-          pixelCtx.fillStyle = this._rgbString(color);
-          pixelCtx.fillRect(
+          this._pixelCtx.fillStyle = this._rgbString(color);
+          this._pixelCtx.fillRect(
             Math.round(px - bounds.minX),
             Math.round(y - bounds.minY),
             1,
@@ -415,7 +577,7 @@ class ValetudoHassCard extends HTMLElement {
     }
 
     ctx.drawImage(
-      pixelCanvas,
+      this._pixelCanvas,
       padding,
       padding,
       Math.round(bounds.width * scale),
@@ -468,7 +630,14 @@ class ValetudoHassCard extends HTMLElement {
       robotPos = { x: rx, y: ry, angle };
     }
 
-    return { robot: robotPos };
+    let chargerPos = null;
+    if (charger && charger.points && charger.points.length >= 2) {
+      const cx = tx(charger.points[0]);
+      const cy = ty(charger.points[1]);
+      chargerPos = { x: cx, y: cy };
+    }
+
+    return { robot: robotPos, charger: chargerPos };
   }
 
   render() {
@@ -478,7 +647,7 @@ class ValetudoHassCard extends HTMLElement {
 
     const vacuum = this._state(this._config.vacuum);
     if (!vacuum) {
-      this.shadowRoot.innerHTML = this.styles() + `
+      this.shadowRoot.innerHTML = ValetudoHassCard.STYLES + `
         <ha-card>
           <div class="content">Vacuum entity not found: ${this._config.vacuum}</div>
         </ha-card>
@@ -490,16 +659,13 @@ class ValetudoHassCard extends HTMLElement {
     const battery = vacuum.attributes.battery_level ?? this._state("sensor." + objectId + "_battery")?.state ?? "-";
     const mapReady = !!(this._mapPayload && this._mapPayload.map);
     const mapError = this._mapPayload && this._mapPayload.error;
-    const runningStates = new Set(["cleaning", "returning", "moving", "segment_cleaning", "spot_cleaning"]);
-    const isRunning = runningStates.has(String(vacuum.state || "").toLowerCase());
+    const isRunning = ValetudoHassCard.RUNNING_STATES.has(String(vacuum.state || "").toLowerCase());
     const primaryAction = isRunning
       ? { label: "Pause", service: "pause", icon: "mdi:pause" }
       : { label: "Start", service: "start", icon: "mdi:play" };
-    const secondaryAction = isRunning
-      ? { label: "Return to dock", service: "return_to_base", icon: "mdi:home" }
-      : { label: "Stop", service: "stop", icon: "mdi:stop" };
+    const secondaryAction = { label: "Return to dock", service: "return_to_base", icon: "mdi:home" };
 
-    this.shadowRoot.innerHTML = this.styles() + `
+    this.shadowRoot.innerHTML = ValetudoHassCard.STYLES + `
       <ha-card>
         <div class="content">
           <div class="header">
@@ -554,138 +720,6 @@ class ValetudoHassCard extends HTMLElement {
     } else if (robotIcon) {
       robotIcon.classList.add("hidden");
     }
-  }
-
-  styles() {
-    return `
-      <style>
-        :host {
-          display: block;
-        }
-        .content {
-          padding: 16px;
-          display: grid;
-          gap: 12px;
-        }
-        .header {
-          display: grid;
-          grid-template-columns: 1fr auto 1fr;
-          align-items: center;
-          gap: 12px;
-        }
-        .title {
-          font-size: 1.2rem;
-          font-weight: 600;
-          justify-self: start;
-        }
-        .chips {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-          justify-self: end;
-        }
-        .chip {
-          padding: 4px 10px;
-          border-radius: 999px;
-          border: 1px solid var(--divider-color);
-          background: color-mix(in srgb, var(--card-background-color) 82%, var(--primary-color) 18%);
-          color: var(--primary-text-color);
-          font-size: 0.85rem;
-        }
-        .map-wrap {
-          position: relative;
-          border-radius: 14px;
-          overflow: hidden;
-          background: transparent;
-          border: 1px solid rgba(124, 138, 150, 0.18);
-          min-height: 220px;
-        }
-        .map-icon {
-          position: absolute;
-          z-index: 2;
-          pointer-events: none;
-          color: #f2f4f5;
-          filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
-        }
-        .map-icon.robot {
-          --mdc-icon-size: 20px;
-        }
-        .map-icon.hidden {
-          display: none;
-        }
-        canvas {
-          display: block;
-          width: 100%;
-        }
-        .map-placeholder {
-          position: absolute;
-          inset: 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--secondary-text-color);
-          background: rgba(15, 20, 27, 0.4);
-          font-size: 0.95rem;
-        }
-        .map-placeholder.hidden {
-          display: none;
-        }
-        .top-actions {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          justify-self: center;
-        }
-        .error {
-          color: var(--error-color);
-          margin-top: 8px;
-          white-space: pre-wrap;
-          word-break: break-word;
-        }
-        .btn {
-          border: 1px solid var(--divider-color);
-          border-radius: 10px;
-          width: 48px;
-          height: 48px;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          background: var(--secondary-background-color, var(--card-background-color));
-          color: var(--secondary-text-color);
-          font: inherit;
-          cursor: pointer;
-          transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-        }
-        .btn:hover {
-          background: color-mix(in srgb, var(--secondary-background-color, var(--card-background-color)) 85%, var(--primary-color) 15%);
-          color: var(--primary-text-color);
-        }
-        .btn.primary {
-          color: var(--state-icon-active-color, var(--primary-color));
-        }
-        .btn ha-icon {
-          --mdc-icon-size: 24px;
-        }
-        @media (max-width: 640px) {
-          .header {
-            grid-template-columns: 1fr auto;
-            grid-template-areas:
-              "title actions"
-              "chips chips";
-          }
-          .title {
-            grid-area: title;
-          }
-          .top-actions {
-            grid-area: actions;
-          }
-          .chips {
-            grid-area: chips;
-            justify-self: start;
-          }
-        }
-      </style>
-    `;
   }
 }
 
