@@ -201,10 +201,36 @@ class ValetudoHassCard extends HTMLElement {
 
   _callService(domain, service) {
     if (!this._hass || !this._config || !this._config.vacuum) {
-      return;
+      return Promise.resolve();
     }
 
-    this._hass.callService(domain, service, { entity_id: this._config.vacuum });
+    return Promise.resolve(this._hass.callService(domain, service, { entity_id: this._config.vacuum }));
+  }
+
+  _callServiceWithFallback(domain, services) {
+    if (!Array.isArray(services) || services.length === 0) {
+      return Promise.resolve();
+    }
+
+    let chain = Promise.reject(new Error("fallback init"));
+    for (let i = 0; i < services.length; i += 1) {
+      const service = services[i];
+      chain = chain.catch(() => this._callService(domain, service));
+    }
+    return chain.catch((err) => {
+      console.error("valetudo-hass-card service call failed", domain, services, err);
+    });
+  }
+
+  _callPrimaryAction(vacuumState) {
+    const state = String(vacuumState || "").toLowerCase();
+    if (ValetudoHassCard.RUNNING_STATES.has(state)) {
+      return this._callServiceWithFallback("vacuum", ["pause", "start_pause"]);
+    }
+    if (state === "paused") {
+      return this._callServiceWithFallback("vacuum", ["start_pause", "start", "resume"]);
+    }
+    return this._callServiceWithFallback("vacuum", ["start", "start_pause", "resume"]);
   }
 
   _syncMapFetch() {
@@ -347,22 +373,60 @@ class ValetudoHassCard extends HTMLElement {
     return "rgba(" + color.r + "," + color.g + "," + color.b + "," + alpha + ")";
   }
 
+  _isDarkMode() {
+    if (this._hass && this._hass.themes && typeof this._hass.themes.darkMode === "boolean") {
+      return this._hass.themes.darkMode;
+    }
+    if (typeof window.matchMedia === "function") {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    return false;
+  }
+
   _valetudoColors() {
+    const brightPalette = {
+      floor: this._hexToRgb("#0076FF"),
+      path: this._hexToRgb("#52AEFF"),
+      segments: [
+        this._hexToRgb("#19A1A1"),
+        this._hexToRgb("#7AC037"),
+        this._hexToRgb("#DF5618"),
+        this._hexToRgb("#F7C841"),
+        this._hexToRgb("#9966CC"),
+      ],
+      floorAccentDelta: -7.5,
+      wallAccentDelta: -5,
+      segmentAccentDelta: -7.5,
+      predictedPathDelta: -45,
+    };
+    const darkPalette = {
+      floor: this._hexToRgb("#005ECC"),
+      path: this._hexToRgb("#3B86CC"),
+      segments: [
+        this._hexToRgb("#148181"),
+        this._hexToRgb("#629A2C"),
+        this._hexToRgb("#B24513"),
+        this._hexToRgb("#C6A034"),
+        this._hexToRgb("#7A52A3"),
+      ],
+      floorAccentDelta: -25,
+      wallAccentDelta: -15,
+      segmentAccentDelta: -25,
+      predictedPathDelta: -35,
+    };
+
+    const activePalette = this._isDarkMode() ? darkPalette : brightPalette;
     const wall = this._hexToRgb("#333333");
-    const darkSegments = [
-      this._hexToRgb("#148181"),
-      this._hexToRgb("#629A2C"),
-      this._hexToRgb("#B24513"),
-      this._hexToRgb("#C6A034"),
-      this._hexToRgb("#7A52A3"),
-    ];
 
     return {
       wall: wall,
-      floor: this._hexToRgb("#005ECC"),
-      segments: darkSegments,
-      wallAccent: this._adjustRgb(wall, -15),
-      segmentAccent: darkSegments.map((c) => this._adjustRgb(c, -25)),
+      floor: activePalette.floor,
+      path: activePalette.path,
+      predictedPath: this._adjustRgb(activePalette.path, activePalette.predictedPathDelta),
+      segments: activePalette.segments,
+      floorAccent: this._adjustRgb(activePalette.floor, activePalette.floorAccentDelta),
+      wallAccent: this._adjustRgb(wall, activePalette.wallAccentDelta),
+      segmentAccent: activePalette.segments.map((c) => this._adjustRgb(c, activePalette.segmentAccentDelta)),
     };
   }
 
@@ -524,11 +588,12 @@ class ValetudoHassCard extends HTMLElement {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssWidth, cssHeight);
     ctx.imageSmoothingEnabled = false;
+    const colors = this._valetudoColors();
 
     const tx = (x) => padding + (x - bounds.minX) * scale;
     const ty = (y) => padding + (y - bounds.minY) * scale;
 
-    ctx.fillStyle = "#1f1f1f";
+    ctx.fillStyle = this._rgbString(colors.wallAccent);
     ctx.fillRect(
       padding - 2,
       padding - 2,
@@ -550,7 +615,6 @@ class ValetudoHassCard extends HTMLElement {
     for (let i = 0; i < layers.length; i += 1) {
       const layer = layers[i];
       const compressed = layer.compressedPixels || [];
-      const colors = this._valetudoColors();
       for (let c = 0; c < compressed.length; c += 3) {
         const x = compressed[c];
         const y = compressed[c + 1];
@@ -560,6 +624,9 @@ class ValetudoHassCard extends HTMLElement {
           let color = colors.floor;
           if (layer.type === "wall") {
             color = colors.wall;
+          } else if (layer.type === "floor") {
+            const useAccent = this._materialPattern(layer.metaData && layer.metaData.material, px, y);
+            color = useAccent ? colors.floorAccent : colors.floor;
           } else if (layer.type === "segment") {
             const idx = this._segmentIndex(layer.metaData && layer.metaData.segmentId);
             const useAccent = this._materialPattern(layer.metaData && layer.metaData.material, px, y);
@@ -612,7 +679,14 @@ class ValetudoHassCard extends HTMLElement {
         }
         ctx.restore();
       } else if (entity.type === "path" || entity.type === "predicted_path") {
-        this._drawPolyline(ctx, points, tx, ty, entity.type === "path" ? "#b9ecff" : "#8a939a", entity.type === "path" ? 2.5 : 1);
+        this._drawPolyline(
+          ctx,
+          points,
+          tx,
+          ty,
+          entity.type === "path" ? this._rgbString(colors.path) : this._rgbString(colors.predictedPath),
+          entity.type === "path" ? 2.5 : 1
+        );
       } else if (entity.type === "robot_position") {
         robot = { metaData: entity.metaData || {}, points: points };
       } else if (entity.type === "charger_location") {
@@ -659,10 +733,12 @@ class ValetudoHassCard extends HTMLElement {
     const battery = vacuum.attributes.battery_level ?? this._state("sensor." + objectId + "_battery")?.state ?? "-";
     const mapReady = !!(this._mapPayload && this._mapPayload.map);
     const mapError = this._mapPayload && this._mapPayload.error;
-    const isRunning = ValetudoHassCard.RUNNING_STATES.has(String(vacuum.state || "").toLowerCase());
+    const vacuumState = String(vacuum.state || "").toLowerCase();
+    const isRunning = ValetudoHassCard.RUNNING_STATES.has(vacuumState);
+    const isPaused = vacuumState === "paused";
     const primaryAction = isRunning
       ? { label: "Pause", service: "pause", icon: "mdi:pause" }
-      : { label: "Start", service: "start", icon: "mdi:play" };
+      : (isPaused ? { label: "Resume", service: "start_pause", icon: "mdi:play" } : { label: "Start", service: "start", icon: "mdi:play" });
     const secondaryAction = { label: "Return to dock", service: "return_to_base", icon: "mdi:home" };
 
     this.shadowRoot.innerHTML = ValetudoHassCard.STYLES + `
@@ -699,7 +775,7 @@ class ValetudoHassCard extends HTMLElement {
     const secondaryButton = this.shadowRoot.getElementById("secondary");
 
     if (primaryButton) {
-      primaryButton.addEventListener("click", () => this._callService("vacuum", primaryAction.service));
+      primaryButton.addEventListener("click", () => this._callPrimaryAction(vacuum.state));
     }
     if (secondaryButton) {
       secondaryButton.addEventListener("click", () => this._callService("vacuum", secondaryAction.service));
