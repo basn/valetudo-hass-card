@@ -47,9 +47,9 @@ class ValetudoHassCard extends HTMLElement {
           position: relative;
           border-radius: 14px;
           overflow: hidden;
-          background: transparent;
+          background: #121212;
           border: 1px solid rgba(124, 138, 150, 0.18);
-          min-height: 220px;
+          min-height: 160px;
         }
         .map-icon {
           position: absolute;
@@ -576,9 +576,9 @@ class ValetudoHassCard extends HTMLElement {
     const bounds = this._boundsForMap(map);
     const dpr = window.devicePixelRatio || 1;
     const cssWidth = Math.max(280, canvas.clientWidth || 320);
-    const padding = 12;
+    const padding = 6;
     const scale = Math.max(0.05, (cssWidth - padding * 2) / bounds.width);
-    const cssHeight = Math.max(220, Math.round(bounds.height * scale + padding * 2));
+    const cssHeight = Math.max(160, Math.round(bounds.height * scale + padding * 2));
 
     canvas.width = Math.round(cssWidth * dpr);
     canvas.height = Math.round(cssHeight * dpr);
@@ -593,13 +593,9 @@ class ValetudoHassCard extends HTMLElement {
     const tx = (x) => padding + (x - bounds.minX) * scale;
     const ty = (y) => padding + (y - bounds.minY) * scale;
 
-    ctx.fillStyle = this._rgbString(colors.wallAccent);
-    ctx.fillRect(
-      padding - 2,
-      padding - 2,
-      Math.round(bounds.width * scale) + 4,
-      Math.round(bounds.height * scale) + 4
-    );
+    // Match Valetudo-style dark canvas background and avoid gray framing.
+    ctx.fillStyle = "#121212";
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
 
     if (!this._pixelCanvas || this._pixelCanvas.width !== bounds.width || this._pixelCanvas.height !== bounds.height) {
       this._pixelCanvas = document.createElement("canvas");
