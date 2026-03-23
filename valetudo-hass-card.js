@@ -386,7 +386,8 @@ class ValetudoHassCard extends HTMLElement {
   _valetudoColors() {
     const brightPalette = {
       floor: this._hexToRgb("#0076FF"),
-      path: this._hexToRgb("#52AEFF"),
+      path: this._hexToRgb("#111111"),
+      predictedPath: this._hexToRgb("#8A939A"),
       segments: [
         this._hexToRgb("#19A1A1"),
         this._hexToRgb("#7AC037"),
@@ -397,11 +398,11 @@ class ValetudoHassCard extends HTMLElement {
       floorAccentDelta: -7.5,
       wallAccentDelta: -5,
       segmentAccentDelta: -7.5,
-      predictedPathDelta: -45,
     };
     const darkPalette = {
       floor: this._hexToRgb("#005ECC"),
-      path: this._hexToRgb("#3B86CC"),
+      path: this._hexToRgb("#111111"),
+      predictedPath: this._hexToRgb("#8A939A"),
       segments: [
         this._hexToRgb("#148181"),
         this._hexToRgb("#629A2C"),
@@ -412,7 +413,6 @@ class ValetudoHassCard extends HTMLElement {
       floorAccentDelta: -25,
       wallAccentDelta: -15,
       segmentAccentDelta: -25,
-      predictedPathDelta: -35,
     };
 
     const activePalette = this._isDarkMode() ? darkPalette : brightPalette;
@@ -422,7 +422,7 @@ class ValetudoHassCard extends HTMLElement {
       wall: wall,
       floor: activePalette.floor,
       path: activePalette.path,
-      predictedPath: this._adjustRgb(activePalette.path, activePalette.predictedPathDelta),
+      predictedPath: activePalette.predictedPath,
       segments: activePalette.segments,
       floorAccent: this._adjustRgb(activePalette.floor, activePalette.floorAccentDelta),
       wallAccent: this._adjustRgb(wall, activePalette.wallAccentDelta),
@@ -685,7 +685,7 @@ class ValetudoHassCard extends HTMLElement {
           tx,
           ty,
           entity.type === "path" ? this._rgbString(colors.path) : this._rgbString(colors.predictedPath),
-          entity.type === "path" ? 2.5 : 1
+          entity.type === "path" ? 1 : 1
         );
       } else if (entity.type === "robot_position") {
         robot = { metaData: entity.metaData || {}, points: points };
