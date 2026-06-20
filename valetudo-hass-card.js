@@ -56,10 +56,13 @@ class ValetudoHassCard extends HTMLElement {
           z-index: 2;
           pointer-events: none;
           color: #f2f4f5;
+          transform-origin: center center;
           filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
         }
         .map-icon.robot {
           --mdc-icon-size: 20px;
+          width: 20px;
+          height: 20px;
         }
         .map-icon.hidden {
           display: none;
@@ -348,11 +351,110 @@ class ValetudoHassCard extends HTMLElement {
   }
 
   _hexToRgb(hex) {
-    const safe = hex.replace("#", "");
+    const color = this._parseHexColor(hex);
+    return color || { r: 0, g: 0, b: 0 };
+  }
+
+  _parseHexColor(hex) {
+    if (typeof hex !== "string" || !hex.startsWith("#")) {
+      return null;
+    }
+
+    const safe = hex.slice(1);
+    if (safe.length === 3) {
+      const expanded = safe
+        .split("")
+        .map((v) => v + v)
+        .join("");
+      const r = parseInt(expanded.substring(0, 2), 16);
+      const g = parseInt(expanded.substring(2, 4), 16);
+      const b = parseInt(expanded.substring(4, 6), 16);
+      if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+        return null;
+      }
+      return { r, g, b };
+    }
+
+    if (safe.length !== 6) {
+      return null;
+    }
+
+    const r = parseInt(safe.substring(0, 2), 16);
+    const g = parseInt(safe.substring(2, 4), 16);
+    const b = parseInt(safe.substring(4, 6), 16);
+    if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+      return null;
+    }
+    return { r, g, b };
+  }
+
+  _rgbToHex(color) {
+    if (!color || typeof color.r !== "number" || typeof color.g !== "number" || typeof color.b !== "number") {
+      return null;
+    }
+    return (
+      "#" +
+      [color.r, color.g, color.b]
+        .map((value) => Math.min(255, Math.max(0, Math.round(value))).toString(16).padStart(2, "0"))
+        .join("")
+    );
+  }
+
+  _blendColor(base, fallbackHex) {
+    const parsed = this._parseHexColor(base);
+    if (parsed) {
+      return parsed;
+    }
+    if (fallbackHex) {
+      return this._hexToRgb(fallbackHex);
+    }
+    return { r: 0, g: 0, b: 0 };
+  }
+
+  _pointsForMap(points, pixelSize, bounds) {
+    if (!Array.isArray(points) || points.length < 2) {
+      return [];
+    }
+
+    const normalized = this._normalizePoints(points, pixelSize);
+    if (!bounds || !pixelSize || pixelSize === 1) {
+      return normalized;
+    }
+
+    const raw = this._normalizePoints(points, 1);
+    const spanX = Math.max(1, bounds.width);
+    const spanY = Math.max(1, bounds.height);
+    const marginX = Math.max(1, spanX * 0.03);
+    const marginY = Math.max(1, spanY * 0.03);
+
+    const fitScore = (coords) => {
+      let inBounds = 0;
+      let outOfBounds = 0;
+
+      for (let i = 0; i < coords.length; i += 2) {
+        if (
+          coords[i] >= bounds.minX - marginX &&
+          coords[i] <= bounds.maxX + marginX &&
+          coords[i + 1] >= bounds.minY - marginY &&
+          coords[i + 1] <= bounds.maxY + marginY
+        ) {
+          inBounds += 1;
+        } else {
+          outOfBounds += 1;
+        }
+      }
+
+      return (inBounds * 1000) - (outOfBounds * 10);
+    };
+
+    return fitScore(raw) > fitScore(normalized) ? raw : normalized;
+  }
+
+  _segmentColor(baseColorHex, accentDelta, fallbackColorHex) {
+    const base = this._blendColor(baseColorHex, fallbackColorHex);
     return {
-      r: parseInt(safe.substring(0, 2), 16),
-      g: parseInt(safe.substring(2, 4), 16),
-      b: parseInt(safe.substring(4, 6), 16),
+      base,
+      accent: this._adjustRgb(base, accentDelta),
     };
   }
 
@@ -467,11 +569,12 @@ class ValetudoHassCard extends HTMLElement {
   }
 
   _boundsForMap(map) {
-    const pixelSize = map.pixelSize || 1;
     let minX = Number.POSITIVE_INFINITY;
     let minY = Number.POSITIVE_INFINITY;
     let maxX = 0;
     let maxY = 0;
+
+    let foundDimensions = false;
 
     const includePoint = (x, y) => {
       if (typeof x !== "number" || typeof y !== "number") {
@@ -492,14 +595,15 @@ class ValetudoHassCard extends HTMLElement {
       if (typeof x.min === "number" && typeof x.max === "number") {
         includePoint(x.min, y.min);
         includePoint(x.max, y.max);
+        foundDimensions = true;
       }
     }
 
-    const entities = map.entities || [];
-    for (let i = 0; i < entities.length; i += 1) {
-      const points = entities[i].points || [];
-      for (let p = 0; p < points.length; p += 2) {
-        includePoint(points[p] / pixelSize, points[p + 1] / pixelSize);
+    if (!foundDimensions) {
+      const size = map.size || {};
+      if (typeof size.x === "number" && typeof size.y === "number") {
+        includePoint(0, 0);
+        includePoint(size.x, size.y);
       }
     }
 
@@ -578,7 +682,9 @@ class ValetudoHassCard extends HTMLElement {
     const cssWidth = Math.max(280, canvas.clientWidth || 320);
     const padding = 6;
     const scale = Math.max(0.05, (cssWidth - padding * 2) / bounds.width);
-    const cssHeight = Math.max(160, Math.round(bounds.height * scale + padding * 2));
+    const drawWidth = Math.round(bounds.width * scale);
+    const drawHeight = Math.max(1, Math.round(bounds.height * scale));
+    const cssHeight = Math.max(160, drawHeight + padding * 2);
 
     canvas.width = Math.round(cssWidth * dpr);
     canvas.height = Math.round(cssHeight * dpr);
@@ -590,8 +696,8 @@ class ValetudoHassCard extends HTMLElement {
     ctx.imageSmoothingEnabled = false;
     const colors = this._valetudoColors();
 
-    const tx = (x) => padding + (x - bounds.minX) * scale;
-    const ty = (y) => padding + (y - bounds.minY) * scale;
+    const tx = (x) => padding + ((x - bounds.minX) * drawWidth) / Math.max(1, bounds.width);
+    const ty = (y) => padding + ((y - bounds.minY) * drawHeight) / Math.max(1, bounds.height);
 
     // Match Valetudo-style dark canvas background and avoid gray framing.
     ctx.fillStyle = "#121212";
@@ -610,24 +716,30 @@ class ValetudoHassCard extends HTMLElement {
     const layers = map.layers || [];
     for (let i = 0; i < layers.length; i += 1) {
       const layer = layers[i];
-      const compressed = layer.compressedPixels || [];
-      for (let c = 0; c < compressed.length; c += 3) {
-        const x = compressed[c];
-        const y = compressed[c + 1];
-        const len = compressed[c + 2];
-        for (let offset = 0; offset < len; offset += 1) {
-          const px = x + offset;
-          let color = colors.floor;
-          if (layer.type === "wall") {
-            color = colors.wall;
-          } else if (layer.type === "floor") {
-            const useAccent = this._materialPattern(layer.metaData && layer.metaData.material, px, y);
-            color = useAccent ? colors.floorAccent : colors.floor;
-          } else if (layer.type === "segment") {
-            const idx = this._segmentIndex(layer.metaData && layer.metaData.segmentId);
-            const useAccent = this._materialPattern(layer.metaData && layer.metaData.material, px, y);
-            color = useAccent ? colors.segmentAccent[idx] : colors.segments[idx];
-          }
+        const compressed = layer.compressedPixels || [];
+        for (let c = 0; c < compressed.length; c += 3) {
+          const x = compressed[c];
+          const y = compressed[c + 1];
+          const len = compressed[c + 2];
+          for (let offset = 0; offset < len; offset += 1) {
+            const px = x + offset;
+            let color = colors.floor;
+            if (layer.type === "wall") {
+              color = this._segmentColor(layer.metaData && layer.metaData.color, -5, "#333333").base;
+            } else if (layer.type === "floor") {
+              const floor = this._segmentColor(layer.metaData && layer.metaData.color, colors.floorAccentDelta, this._rgbToHex(colors.floor));
+              const useAccent = this._materialPattern(layer.metaData && layer.metaData.material, px, y);
+              color = useAccent ? floor.accent : floor.base;
+            } else if (layer.type === "segment") {
+              const idx = this._segmentIndex(layer.metaData && layer.metaData.segmentId);
+              const seg = this._segmentColor(
+                layer.metaData && layer.metaData.color,
+                colors.segmentAccentDelta,
+                this._rgbToHex(colors.segments[idx])
+              );
+              const useAccent = this._materialPattern(layer.metaData && layer.metaData.material, px, y);
+              color = useAccent ? seg.accent : seg.base;
+            }
           this._pixelCtx.fillStyle = this._rgbString(color);
           this._pixelCtx.fillRect(
             Math.round(px - bounds.minX),
@@ -643,8 +755,8 @@ class ValetudoHassCard extends HTMLElement {
       this._pixelCanvas,
       padding,
       padding,
-      Math.round(bounds.width * scale),
-      Math.round(bounds.height * scale)
+      drawWidth,
+      drawHeight
     );
 
     const entities = map.entities || [];
@@ -653,7 +765,7 @@ class ValetudoHassCard extends HTMLElement {
 
     for (let i = 0; i < entities.length; i += 1) {
       const entity = entities[i];
-      const points = this._normalizePoints(entity.points || [], pixelSize);
+      const points = this._pointsForMap(entity.points || [], pixelSize, bounds);
       if (entity.type === "carpet") {
         const carpetBase = this._hexToRgb("#2f302f");
         this._drawPolygon(ctx, points, tx, ty, this._rgbaString(carpetBase, 0.10), this._rgbaString(carpetBase, 0.14));
@@ -783,8 +895,8 @@ class ValetudoHassCard extends HTMLElement {
       const drawn = this._drawMap(canvas, this._mapPayload);
       if (robotIcon && drawn && drawn.robot) {
         robotIcon.classList.remove("hidden");
-        robotIcon.style.left = drawn.robot.x + "px";
-        robotIcon.style.top = drawn.robot.y + "px";
+        robotIcon.style.left = Math.round(drawn.robot.x) + "px";
+        robotIcon.style.top = Math.round(drawn.robot.y) + "px";
         robotIcon.style.transform = "translate(-50%, -50%) rotate(" + drawn.robot.angle + "rad)";
       } else if (robotIcon) {
         robotIcon.classList.add("hidden");
