@@ -303,6 +303,17 @@ class ValetudoHassCard extends HTMLElement {
         if (this._abortController && this._abortController.signal.aborted) {
           this._abortController = null;
         }
+
+        // Home Assistant can publish a new map nonce while the prior request
+        // is still running. Fetch that newer snapshot once this request has
+        // released the in-flight guard.
+        const currentVacuum = this._state(this._config && this._config.vacuum);
+        const currentAttributes = currentVacuum && currentVacuum.attributes;
+        const currentUrl = currentAttributes && currentAttributes.map_data_url;
+        const currentNonce = (currentAttributes && currentAttributes.map_nonce) || "unknown";
+        if (currentUrl && (currentUrl !== nextUrl || currentNonce !== nextNonce)) {
+          this._syncMapFetch();
+        }
       });
   }
 
@@ -388,74 +399,15 @@ class ValetudoHassCard extends HTMLElement {
     return { r, g, b };
   }
 
-  _rgbToHex(color) {
-    if (!color || typeof color.r !== "number" || typeof color.g !== "number" || typeof color.b !== "number") {
-      return null;
-    }
-    return (
-      "#" +
-      [color.r, color.g, color.b]
-        .map((value) => Math.min(255, Math.max(0, Math.round(value))).toString(16).padStart(2, "0"))
-        .join("")
-    );
-  }
-
-  _blendColor(base, fallbackHex) {
-    const parsed = this._parseHexColor(base);
-    if (parsed) {
-      return parsed;
-    }
-    if (fallbackHex) {
-      return this._hexToRgb(fallbackHex);
-    }
-    return { r: 0, g: 0, b: 0 };
-  }
-
-  _pointsForMap(points, pixelSize, bounds) {
+  _pointsForMap(points, pixelSize) {
     if (!Array.isArray(points) || points.length < 2) {
       return [];
     }
 
-    const normalized = this._normalizePoints(points, pixelSize);
-    if (!bounds || !pixelSize || pixelSize === 1) {
-      return normalized;
-    }
-
-    const raw = this._normalizePoints(points, 1);
-    const spanX = Math.max(1, bounds.width);
-    const spanY = Math.max(1, bounds.height);
-    const marginX = Math.max(1, spanX * 0.03);
-    const marginY = Math.max(1, spanY * 0.03);
-
-    const fitScore = (coords) => {
-      let inBounds = 0;
-      let outOfBounds = 0;
-
-      for (let i = 0; i < coords.length; i += 2) {
-        if (
-          coords[i] >= bounds.minX - marginX &&
-          coords[i] <= bounds.maxX + marginX &&
-          coords[i + 1] >= bounds.minY - marginY &&
-          coords[i + 1] <= bounds.maxY + marginY
-        ) {
-          inBounds += 1;
-        } else {
-          outOfBounds += 1;
-        }
-      }
-
-      return (inBounds * 1000) - (outOfBounds * 10);
-    };
-
-    return fitScore(raw) > fitScore(normalized) ? raw : normalized;
-  }
-
-  _segmentColor(baseColorHex, accentDelta, fallbackColorHex) {
-    const base = this._blendColor(baseColorHex, fallbackColorHex);
-    return {
-      base,
-      accent: this._adjustRgb(base, accentDelta),
-    };
+    // Valetudo stores all entity points in centimetres, while layers use
+    // map-pixel coordinates. Applying this conversion uniformly keeps the
+    // trail, robot, charger, and polygons in the same coordinate space.
+    return this._normalizePoints(points, pixelSize || 1);
   }
 
   _adjustRgb(color, percent) {
@@ -532,8 +484,124 @@ class ValetudoHassCard extends HTMLElement {
     };
   }
 
-  _segmentIndex(segmentId) {
-    return Math.abs(parseInt(segmentId || "0", 10) || 0) % 5;
+  _segmentColorIds(layers, pixelSize) {
+    const segments = [];
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
+    const includePoint = (x, y) => {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    };
+
+    for (let i = 0; i < layers.length; i += 1) {
+      const layer = layers[i];
+      if (layer.type !== "segment" || !layer.metaData || layer.metaData.segmentId === undefined) {
+        continue;
+      }
+
+      const segment = {
+        id: String(layer.metaData.segmentId),
+        compressed: layer.compressedPixels || [],
+        pixels: layer.pixels || [],
+      };
+      segments.push(segment);
+
+      for (let p = 0; p + 1 < segment.pixels.length; p += 2) {
+        includePoint(segment.pixels[p], segment.pixels[p + 1]);
+      }
+      for (let p = 0; p + 2 < segment.compressed.length; p += 3) {
+        includePoint(segment.compressed[p], segment.compressed[p + 1]);
+        includePoint(segment.compressed[p] + segment.compressed[p + 2] - 1, segment.compressed[p + 1]);
+      }
+    }
+
+    if (!segments.length || !Number.isFinite(minX) || !Number.isFinite(minY)) {
+      return new Map();
+    }
+
+    // This mirrors Valetudo's FourColorTheoremSolver sampling resolution.
+    const resolution = Math.max(1, Math.floor(30 / Math.max(1, pixelSize || 1)));
+    const sampledPixels = new Map();
+    const isSampled = (coordinate, minimum) => (coordinate - minimum) % resolution === 0;
+    const putSample = (x, y, id) => {
+      if (isSampled(x, minX) && isSampled(y, minY)) {
+        sampledPixels.set(x + "," + y, id);
+      }
+    };
+
+    for (let i = 0; i < segments.length; i += 1) {
+      const segment = segments[i];
+      for (let p = 0; p + 1 < segment.pixels.length; p += 2) {
+        putSample(segment.pixels[p], segment.pixels[p + 1], segment.id);
+      }
+      for (let p = 0; p + 2 < segment.compressed.length; p += 3) {
+        const startX = segment.compressed[p];
+        const y = segment.compressed[p + 1];
+        const endX = startX + segment.compressed[p + 2] - 1;
+        if (!isSampled(y, minY)) {
+          continue;
+        }
+        const firstX = startX + ((resolution - ((startX - minX) % resolution)) % resolution);
+        for (let x = firstX; x <= endX; x += resolution) {
+          sampledPixels.set(x + "," + y, segment.id);
+        }
+      }
+    }
+
+    const adjacency = new Map();
+    for (let i = 0; i < segments.length; i += 1) {
+      adjacency.set(segments[i].id, new Set());
+    }
+    const connect = (left, right) => {
+      if (left && right && left !== right) {
+        adjacency.get(left).add(right);
+        adjacency.get(right).add(left);
+      }
+    };
+    const sampledId = (x, y) => sampledPixels.get(x + "," + y);
+
+    for (let y = minY; y <= maxY; y += resolution) {
+      let previous;
+      for (let x = minX; x <= maxX; x += resolution) {
+        const current = sampledId(x, y);
+        connect(previous, current);
+        previous = current || previous;
+      }
+    }
+    for (let x = minX; x <= maxX; x += resolution) {
+      let previous;
+      for (let y = minY; y <= maxY; y += resolution) {
+        const current = sampledId(x, y);
+        connect(previous, current);
+        previous = current || previous;
+      }
+    }
+
+    const orderedIds = Array.from(adjacency.keys()).sort((left, right) => {
+      return adjacency.get(right).size - adjacency.get(left).size;
+    });
+    const colors = new Map();
+    for (let i = 0; i < orderedIds.length; i += 1) {
+      const id = orderedIds[i];
+      const used = new Set();
+      adjacency.get(id).forEach((neighbour) => {
+        if (colors.has(neighbour)) {
+          used.add(colors.get(neighbour));
+        }
+      });
+      let color = 0;
+      while (used.has(color)) {
+        color += 1;
+      }
+      colors.set(id, Math.min(color, 4));
+    }
+
+    return colors;
   }
 
   _materialPattern(material, x, y) {
@@ -714,6 +782,7 @@ class ValetudoHassCard extends HTMLElement {
     }
 
     const layers = map.layers || [];
+    const segmentColorIds = this._segmentColorIds(layers, pixelSize);
     for (let i = 0; i < layers.length; i += 1) {
       const layer = layers[i];
         const compressed = layer.compressedPixels || [];
@@ -725,20 +794,15 @@ class ValetudoHassCard extends HTMLElement {
             const px = x + offset;
             let color = colors.floor;
             if (layer.type === "wall") {
-              color = this._segmentColor(layer.metaData && layer.metaData.color, -5, "#333333").base;
+              color = colors.wall;
             } else if (layer.type === "floor") {
-              const floor = this._segmentColor(layer.metaData && layer.metaData.color, colors.floorAccentDelta, this._rgbToHex(colors.floor));
               const useAccent = this._materialPattern(layer.metaData && layer.metaData.material, px, y);
-              color = useAccent ? floor.accent : floor.base;
+              color = useAccent ? colors.floorAccent : colors.floor;
             } else if (layer.type === "segment") {
-              const idx = this._segmentIndex(layer.metaData && layer.metaData.segmentId);
-              const seg = this._segmentColor(
-                layer.metaData && layer.metaData.color,
-                colors.segmentAccentDelta,
-                this._rgbToHex(colors.segments[idx])
-              );
+              const segmentId = layer.metaData && layer.metaData.segmentId;
+              const idx = segmentColorIds.get(String(segmentId)) || 0;
               const useAccent = this._materialPattern(layer.metaData && layer.metaData.material, px, y);
-              color = useAccent ? seg.accent : seg.base;
+              color = useAccent ? colors.segmentAccent[idx] : colors.segments[idx];
             }
           this._pixelCtx.fillStyle = this._rgbString(color);
           this._pixelCtx.fillRect(
@@ -765,7 +829,7 @@ class ValetudoHassCard extends HTMLElement {
 
     for (let i = 0; i < entities.length; i += 1) {
       const entity = entities[i];
-      const points = this._pointsForMap(entity.points || [], pixelSize, bounds);
+      const points = this._pointsForMap(entity.points || [], pixelSize);
       if (entity.type === "carpet") {
         const carpetBase = this._hexToRgb("#2f302f");
         this._drawPolygon(ctx, points, tx, ty, this._rgbaString(carpetBase, 0.10), this._rgbaString(carpetBase, 0.14));
